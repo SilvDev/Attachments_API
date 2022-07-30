@@ -1,6 +1,6 @@
 /*
 *	Attachments API
-*	Copyright (C) 2021 Silvers
+*	Copyright (C) 2022 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.9"
+#define PLUGIN_VERSION 		"1.10"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,10 @@
 
 ========================================================================================
 	Change Log:
+
+1.10 (30-Jul-2022)
+	- Changes to fix the incorrect weapon showing in OnWeaponSwitch when spawning.
+	- Changes to clean up some variables on round end. Probably not required.
 
 1.9 (04-Dec-2021)
 	- Changes to fix warnings when compiling on SourceMod 1.11.
@@ -93,6 +97,7 @@
 #include <sdkhooks>
 
 #define CVAR_FLAGS				FCVAR_NOTIFY
+#define DEBUG_TEST				0
 
 #define SF_PHYSPROP_PREVENT_PICKUP		(1 << 9)
 #define EFL_DONTBLOCKLOS		(1 << 25)
@@ -102,7 +107,7 @@
 #define EF_PARENT_ANIMATES		(1 << 9)
 
 #define MAX_SLOTS				1	// Maximum weapon slots. (L4D/2): 0=Pistol. 1=Primary. 2=Grenades. 3=Medkit. 4=Pills.
-#define MAX_MODEL				64	// Maximum modelname string length
+#define MAX_MODEL				128	// Maximum modelname string length
 
 #define PATH_READ				"data/attachments_api"		// Appends ".game.cfg" to the filename
 #define PATH_SAVE				"data/attachments_new.cfg" 	// The .qc parsed file save location
@@ -236,7 +241,7 @@ public void OnPluginStart()
 	}
 }
 
-public Action TimerLateLoad(Handle timer)
+Action TimerLateLoad(Handle timer)
 {
 	for( int i = 1; i <= MaxClients; i++ )
 	{
@@ -281,11 +286,11 @@ public void OnConfigsExecuted()
 	if( g_bLateLoad )
 	{
 		g_bLateLoad = false;
-		for( int client = 1; client <= MaxClients; client++ )
+		for( int i = 1; i <= MaxClients; i++ )
 		{
-			if( IsClientInGame(client) && IsPlayerAlive(client) )
+			if( IsClientInGame(i) && IsPlayerAlive(i) )
 			{
-				g_iLastModel[client] = GetEntProp(client, Prop_Data, "m_nModelIndex", 2);
+				g_iLastModel[i] = GetEntProp(i, Prop_Data, "m_nModelIndex", 2);
 			}
 		}
 
@@ -294,7 +299,7 @@ public void OnConfigsExecuted()
 	}
 }
 
-public void ConVarChanged_Cvars(Handle convar, const char[] oldValue, const char[] newValue)
+void ConVarChanged_Cvars(Handle convar, const char[] oldValue, const char[] newValue)
 {
 	GetCvars();
 }
@@ -321,7 +326,7 @@ void GetCvars()
 // ====================================================================================================
 //					COMMANDS
 // ====================================================================================================
-public Action CmdReload(int client, int args)
+Action CmdReload(int client, int args)
 {
 	float fTime = GetEngineTime();
 	ParseConfig();
@@ -329,7 +334,7 @@ public Action CmdReload(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action CmdParseQC(int client, int args)
+Action CmdParseQC(int client, int args)
 {
 	// Require arg
 	if( args != 1 )
@@ -354,7 +359,7 @@ public Action CmdParseQC(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action TimreQC(Handle timer, DataPack dPack)
+Action TimreQC(Handle timer, DataPack dPack)
 {
 	dPack.Reset();
 
@@ -543,7 +548,7 @@ bool ParseConfigFile(const char[] file)
 	return (result == SMCError_Okay);
 }
 
-public SMCResult ColorConfig_NewSection(Handle parser, const char[] section, bool quotes)
+SMCResult ColorConfig_NewSection(Handle parser, const char[] section, bool quotes)
 {
 	g_hMapAttach = new ArrayList(ByteCountToCells(MAX_MODEL));
 	g_hMapModels.SetValue(section, g_hMapAttach);
@@ -551,19 +556,19 @@ public SMCResult ColorConfig_NewSection(Handle parser, const char[] section, boo
 	return SMCParse_Continue;
 }
 
-public SMCResult ColorConfig_KeyValue(Handle parser, const char[] key, const char[] value, bool key_quotes, bool value_quotes)
+SMCResult ColorConfig_KeyValue(Handle parser, const char[] key, const char[] value, bool key_quotes, bool value_quotes)
 {
 	g_hMapAttach.PushString(value);
 
 	return SMCParse_Continue;
 }
 
-public SMCResult ColorConfig_EndSection(Handle parser)
+SMCResult ColorConfig_EndSection(Handle parser)
 {
 	return SMCParse_Continue;
 }
 
-public void ColorConfig_End(Handle parser, bool halted, bool failed)
+void ColorConfig_End(Handle parser, bool halted, bool failed)
 {
 	if( failed )
 		SetFailState("Error: Cannot load the Neon Beam Color menu.");
@@ -585,7 +590,7 @@ public void OnMapEnd()
 	}
 }
 
-public void Event_WeaponDrop(Event event, const char[] name, bool dontBroadcast)
+void Event_WeaponDrop(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if( client )
@@ -610,7 +615,7 @@ public void Event_WeaponDrop(Event event, const char[] name, bool dontBroadcast)
 }
 
 // Fix weapon pickup not firing weapon switch sometimes (game bug, noticeable in L4D/2 when picking up second pistol)
-public void Event_PlayerUse(Event event, const char[] name, bool dontBroadcast)
+void Event_PlayerUse(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if( client )
@@ -625,18 +630,29 @@ public void Event_PlayerUse(Event event, const char[] name, bool dontBroadcast)
 	}
 }
 
-public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int userid = event.GetInt("userid");
+	int client = GetClientOfUserId(userid);
 	if( client )
 	{
 		g_iLastModel[client] = GetEntProp(client, Prop_Data, "m_nModelIndex", 2);
 		g_iLastWeapon[client] = -1;
 		g_bOnLadder[client] = false;
+		RequestFrame(OnFrameSpawn, userid); // Because spawning and adding weapons can happen too fast so OnWeaponSwitch fires with the wrong m_hActiveWeapon weapon. Delaying and triggering again allows the fake model to correctly change.
 	}
 }
 
-public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+void OnFrameSpawn(int client)
+{
+	client = GetClientOfUserId(client);
+	if( client && IsClientInGame(client) )
+	{
+		OnWeaponSwitch(client, 0);
+	}
+}
+
+void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
 	g_bManualDrop = false;
 
@@ -648,12 +664,29 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 	}
 }
 
-public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
 	delete g_hTimerCheck;
+
+	// Extra cleanup, doesn't seem to be required, but might as well
+	for( int i = 1; i <= MaxClients; i++ )
+	{
+		if( g_iViewsModel[i] && EntRefToEntIndex(g_iViewsModel[i]) != INVALID_ENT_REFERENCE )
+			RemoveEntity(g_iViewsModel[i]);
+
+		if( g_iWorldModel[i] && EntRefToEntIndex(g_iWorldModel[i]) != INVALID_ENT_REFERENCE )
+			RemoveEntity(g_iWorldModel[i]);
+
+		g_iViewsModel[i] = 0;
+		g_iWorldModel[i] = 0;
+		g_iLastModel[i] = -1;
+		g_iLastWeapon[i] = -1;
+		g_bOnLadder[i] = false;
+		delete g_hTimerSwap[i];
+	}
 }
 
-public Action TimerCheck(Handle timer)
+Action TimerCheck(Handle timer)
 {
 	static char sTemp[MAX_MODEL], sModel[MAX_MODEL];
 	int att, last, model, weapon;
@@ -703,7 +736,7 @@ public Action TimerCheck(Handle timer)
 							for( int i = 0; i <= MAX_SLOTS; i++ )
 							{
 								weapon = GetPlayerWeaponSlot(client, i);
-								if( weapon != -1 )
+								if( weapon != -1 && GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity") == client ) // This shouldn't be required, but seems some plugins are causing this error to occur.
 								{
 									dPack.WriteCell(EntIndexToEntRef(weapon));
 
@@ -766,7 +799,7 @@ public Action TimerCheck(Handle timer)
 	return Plugin_Continue;
 }
 
-public Action TimerWeapons(Handle timer, DataPack dPack)
+Action TimerWeapons(Handle timer, DataPack dPack)
 {
 	dPack.Reset();
 	int client = dPack.ReadCell();
@@ -853,7 +886,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 // ====================================================================================================
 //					REPLICA ATTACHMENT
 // ====================================================================================================
-public int Native_HasAttachment(Handle plugin, int numParams)
+int Native_HasAttachment(Handle plugin, int numParams)
 {
 	int client = GetNativeCell(1);
 	bool viewmodel = GetNativeCell(2);
@@ -878,7 +911,7 @@ public int Native_HasAttachment(Handle plugin, int numParams)
 	return 0;
 }
 
-public int Native_GetViewModel(Handle plugin, int numParams)
+int Native_GetViewModel(Handle plugin, int numParams)
 {
 	int client = GetNativeCell(1);
 	if( IsPlayerAlive(client) )
@@ -889,7 +922,7 @@ public int Native_GetViewModel(Handle plugin, int numParams)
 	return 0;
 }
 
-public int Native_GetWorldModel(Handle plugin, int numParams)
+int Native_GetWorldModel(Handle plugin, int numParams)
 {
 	int client = GetNativeCell(1);
 	if( IsPlayerAlive(client) )
@@ -956,20 +989,22 @@ int CreateReplica(int client, int weapon, bool viewmodel)
 	SetAttached(bone, weapon);
 
 	// Testing:
-	// if( viewmodel )
-		// SetEntityRenderColor(bone, 255, 0, 0); // Make viewmodel replica red
-	// else
-		// SetEntityRenderColor(bone, 0, 255, 0); // Make worldmodel replica green
+	#if DEBUG_TEST
+	if( viewmodel )
+		SetEntityRenderColor(bone, 255, 0, 0); // Make viewmodel replica red
+	else
+		SetEntityRenderColor(bone, 0, 255, 0); // Make worldmodel replica green
+	#endif
 
 	return bone;
 }
 
-public Action OnUse(int entity, int activator, int caller, UseType type, float value)
+Action OnUse(int entity, int activator, int caller, UseType type, float value)
 {
 	return Plugin_Handled;
 }
 
-public void OnWeaponDrop(int client, int weapon)
+void OnWeaponDrop(int client, int weapon)
 {
 	if( g_bManualDrop || GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon") == -1 )
 	{
@@ -1001,7 +1036,7 @@ public void OnWeaponDrop(int client, int weapon)
 	}
 }
 
-public void OnWeaponSwitch(int client, int weapon)
+void OnWeaponSwitch(int client, int weapon)
 {
 	// Ignore if drop weapon in progress
 	if( g_hTimerSwap[client] ) return;
@@ -1092,7 +1127,10 @@ stock void SetAttached(int iEntToAttach, int iEntToAttachTo)
 	AcceptEntityInput(iEntToAttach, "SetParent", iEntToAttachTo);
 
 	SetEntityMoveType(iEntToAttach, MOVETYPE_NONE);
-	// SetEntityRenderMode(iEntToAttach, RENDER_TRANSALPHA); // Make visible, for testing.
+
+	#if DEBUG_TEST
+	SetEntityRenderMode(iEntToAttach, RENDER_TRANSALPHA); // Make visible, for testing.
+	#endif
 
 	SetEntProp(iEntToAttach, Prop_Send, "m_fEffects", EF_BONEMERGE|EF_NOSHADOW|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
 
