@@ -1,6 +1,6 @@
 /*
 *	Attachments API
-*	Copyright (C) 2022 Silvers
+*	Copyright (C) 2023 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.10"
+#define PLUGIN_VERSION 		"1.11"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.11 (31-Mar-2023)
+	- Fix to detect model change on team swap. Thanks to "Voevoda" for reporting.
 
 1.10 (30-Jul-2022)
 	- Changes to fix the incorrect weapon showing in OnWeaponSwitch when spawning.
@@ -213,6 +216,7 @@ public void OnPluginStart()
 
 	HookEvent("player_use",					Event_PlayerUse);
 	HookEvent("player_spawn",				Event_PlayerSpawn);
+	HookEvent("player_team",				Event_PlayerTeam);
 	HookEvent("round_start",				Event_RoundStart);
 	HookEvent("round_end",					Event_RoundEnd);
 
@@ -641,6 +645,20 @@ void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 		g_bOnLadder[client] = false;
 		RequestFrame(OnFrameSpawn, userid); // Because spawning and adding weapons can happen too fast so OnWeaponSwitch fires with the wrong m_hActiveWeapon weapon. Delaying and triggering again allows the fake model to correctly change.
 	}
+}
+
+void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
+{
+	if( g_bCvarModels )
+	{
+		CreateTimer(0.1, TimerTeam);
+	}
+}
+
+Action TimerTeam(Handle timer)
+{
+	TimerCheck(null);
+	return Plugin_Changed;
 }
 
 void OnFrameSpawn(int client)

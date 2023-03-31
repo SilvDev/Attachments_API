@@ -58,7 +58,7 @@ native int Attachments_HasAttachment(int client, bool viewmodel);
  * @remarks				This happens after Attachments_API has changed the replica model and re-attached to the weapon.
  *
  * @param client		The clients entity index
- * @param weapon		The weapons entity index or -1 if missing
+ * @param weapon		The weapons entity index or -1 if missing or when a client is disconnecting
  * @param ent_views		The ViewModel entity index or -1 if missing
  * @param ent_world		The WorldModel entity index or -1 if missing
  */
