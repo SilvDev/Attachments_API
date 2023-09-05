@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.11"
+#define PLUGIN_VERSION 		"1.12"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.12 (05-Sep-2023)
+	- Fixed invalid handle error. Thanks to "Voevoda" for reporting.
 
 1.11 (31-Mar-2023)
 	- Fix to detect model change on team swap. Thanks to "Voevoda" for reporting.
@@ -745,9 +748,11 @@ Action TimerCheck(Handle timer)
 						if( weapon != -1 )
 						{
 							DataPack dPack = new DataPack();
+							dPack.WriteCell(client);
 							dPack.WriteCell(GetClientUserId(client));
 							dPack.WriteCell(EntIndexToEntRef(weapon)); // Save last held weapon to switch back
 
+							delete g_hTimerSwap[client];
 							g_hTimerSwap[client] = CreateTimer(g_fCvarEquip, TimerWeapons, dPack);
 
 							// Loop through weapons and drop
@@ -820,13 +825,18 @@ Action TimerCheck(Handle timer)
 Action TimerWeapons(Handle timer, DataPack dPack)
 {
 	dPack.Reset();
+
 	int client = dPack.ReadCell();
-	int active = dPack.ReadCell();
-	int weapon;
+	g_hTimerSwap[client] = null;
+
+	client = dPack.ReadCell();
 
 	client = GetClientOfUserId(client);
 	if( client && IsClientInGame(client) && IsPlayerAlive(client) )
 	{
+		int weapon;
+		int active = dPack.ReadCell();
+
 		while( dPack.IsReadable() )
 		{
 			weapon = dPack.ReadCell();
@@ -842,8 +852,6 @@ Action TimerWeapons(Handle timer, DataPack dPack)
 		{
 			SetEntPropEnt(client, Prop_Data, "m_hActiveWeapon", active);
 		}
-
-		g_hTimerSwap[client] = null;
 	}
 
 	delete dPack;
