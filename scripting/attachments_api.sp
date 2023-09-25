@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.12"
+#define PLUGIN_VERSION 		"1.13"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.13 (25-Sep-2023)
+	- L4D and L4D2: Fixed dual pistols not carrying over on model change. Thanks to "kochiurun119" for reporting.
 
 1.12 (05-Sep-2023)
 	- Fixed invalid handle error. Thanks to "Voevoda" for reporting.
@@ -763,6 +766,11 @@ Action TimerCheck(Handle timer)
 								{
 									dPack.WriteCell(EntIndexToEntRef(weapon));
 
+									if( (g_iEngine == Engine_Left4Dead || g_iEngine == Engine_Left4Dead2) && GetEntProp(weapon, Prop_Send, "m_isDualWielding") ) // Dual wielding pistols
+										dPack.WriteCell(1);
+									else
+										dPack.WriteCell(0);
+
 									// Teleport somewhere else, otherwise it drops on floor next to them potentially allowing others to pickup.
 									SDKHooks_DropWeapon(client, weapon);
 
@@ -834,17 +842,21 @@ Action TimerWeapons(Handle timer, DataPack dPack)
 	client = GetClientOfUserId(client);
 	if( client && IsClientInGame(client) && IsPlayerAlive(client) )
 	{
-		int weapon;
+		int weapon, dual;
 		int active = dPack.ReadCell();
 
 		while( dPack.IsReadable() )
 		{
 			weapon = dPack.ReadCell();
+			dual = dPack.ReadCell();
+
 			if( EntRefToEntIndex(weapon) != INVALID_ENT_REFERENCE )
 			{
 				EquipPlayerWeapon(client, weapon);
 				SetEntPropEnt(client, Prop_Data, "m_hActiveWeapon", weapon);
 				AcceptEntityInput(weapon, "HideWeapon"); // Makes it not invisible.. logic
+
+				if( dual ) GivePlayerItem(client, "weapon_pistol");
 			}
 		}
 
