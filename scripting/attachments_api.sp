@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.13"
+#define PLUGIN_VERSION 		"1.14"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.14 (25-Sep-2023)
+	- Fixed invalid property errors. Thanks to "ur5efj" for reporting.
 
 1.13 (25-Sep-2023)
 	- L4D and L4D2: Fixed dual pistols not carrying over on model change. Thanks to "kochiurun119" for reporting.
@@ -766,7 +769,7 @@ Action TimerCheck(Handle timer)
 								{
 									dPack.WriteCell(EntIndexToEntRef(weapon));
 
-									if( (g_iEngine == Engine_Left4Dead || g_iEngine == Engine_Left4Dead2) && GetEntProp(weapon, Prop_Send, "m_isDualWielding") ) // Dual wielding pistols
+									if( (g_iEngine == Engine_Left4Dead || g_iEngine == Engine_Left4Dead2) && HasEntProp(weapon, Prop_Send, "m_isDualWielding")&& GetEntProp(weapon, Prop_Send, "m_isDualWielding") ) // Dual wielding pistols
 										dPack.WriteCell(1);
 									else
 										dPack.WriteCell(0);
