@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.14"
+#define PLUGIN_VERSION 		"1.15"
 
 /*======================================================================================
 	Plugin Info:
@@ -32,8 +32,12 @@
 ========================================================================================
 	Change Log:
 
+1.15 (28-Sep-2023)
+	- L4D and L4D2: Fixed dual pistols creating an extra weapon when changing player skins. Thanks to "kochiurun119" for reporting.
+	- L4D and L4D2: Due to this fix there may sometimes be visual bugs on the first person model of dual pistols until the weapons are swapped.
+
 1.14 (25-Sep-2023)
-	- Fixed invalid property errors. Thanks to "ur5efj" for reporting.
+	- L4D and L4D2: Fixed invalid property errors. Thanks to "ur5efj" for reporting.
 
 1.13 (25-Sep-2023)
 	- L4D and L4D2: Fixed dual pistols not carrying over on model change. Thanks to "kochiurun119" for reporting.
@@ -130,6 +134,7 @@ ConVar g_hCvarCheck, g_hCvarEquip, g_hCvarModels, g_hCvarWeapons;
 bool g_bLateLoad, g_bCvarModels, g_bCvarWeapons, g_bMissingConfig;
 float g_fCvarCheck, g_fCvarEquip;
 
+int g_bBlockSwitch[MAXPLAYERS+1];				// Block OnWeaponSwitch when dual equip pistols (L4D/2
 int g_iLastWeapon[MAXPLAYERS+1];
 int g_iLastModel[MAXPLAYERS+1] = {-1, ...};		// Players last model, for detecting model changes
 int g_iViewsModel[MAXPLAYERS+1];				// Views model entity, for tracking and deletion
@@ -218,10 +223,22 @@ public void OnPluginStart()
 
 
 	// Events
-	if( g_iEngine == Engine_Left4Dead2 )
-		HookEvent("weapon_drop",			Event_WeaponDrop);
-	else if( g_iEngine == Engine_CSGO )
-		HookEvent("item_remove",			Event_WeaponDrop);
+	switch( g_iEngine )
+	{
+		case Engine_Left4Dead:
+		{
+			AddCommandListener(CommandListener, "give");
+		}
+		case Engine_Left4Dead2:
+		{
+			AddCommandListener(CommandListener, "give");
+			HookEvent("weapon_drop",			Event_WeaponDrop);
+		}
+		case Engine_CSGO:
+		{
+			HookEvent("item_remove",			Event_WeaponDrop);
+		}
+	}
 
 	HookEvent("player_use",					Event_PlayerUse);
 	HookEvent("player_spawn",				Event_PlayerSpawn);
@@ -284,6 +301,74 @@ public void OnPluginEnd()
 		if( g_iWorldModel[i] && EntRefToEntIndex(g_iWorldModel[i]) != INVALID_ENT_REFERENCE )
 			RemoveEntity(g_iWorldModel[i]);
 	}
+}
+
+
+
+// ====================================================================================================
+//					L4D & L4D2: DUAL PISTOLS
+// ====================================================================================================
+Action CommandListener(int client, const char[] command, int args)
+{
+	if( args > 0 )
+	{
+		static char buffer[16];
+		GetCmdArg(1, buffer, sizeof(buffer));
+
+		if( strcmp(buffer, "pistol") == 0 || strcmp(buffer, "weapon_pistol") == 0 )
+		{
+			int weapon = GetPlayerWeaponSlot(client, 1);
+			if( weapon != -1 )
+			{
+				GetEdictClassname(weapon, buffer, sizeof(buffer));
+				if( strcmp(buffer, "pistol") == 0 || strcmp(buffer, "weapon_pistol") == 0 )
+				{
+					if( GetEntProp(weapon, Prop_Send, "m_isDualWielding") == 0 )
+					{
+						CreateTimer(0.1, TimerDual, GetClientUserId(client));
+					}
+				}
+			}
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+Action TimerDual(Handle timer, int userid)
+{
+	int client = GetClientOfUserId(userid);
+	if( client && IsClientInGame(client) )
+	{
+		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		if( weapon == GetPlayerWeaponSlot(client, 1) )
+		{
+			RemovePlayerItem(client, weapon);
+
+			DataPack dPack = new DataPack();
+			dPack.WriteCell(userid);
+			dPack.WriteCell(EntIndexToEntRef(weapon));
+			CreateTimer(0.2, TimerDual2, dPack);
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+Action TimerDual2(Handle timer, DataPack dPack)
+{
+	dPack.Reset();
+	int client = dPack.ReadCell();
+	int weapon = dPack.ReadCell();
+	delete dPack;
+
+	client = GetClientOfUserId(client);
+	if( client && IsClientInGame(client) && EntRefToEntIndex(weapon) != INVALID_ENT_REFERENCE )
+	{
+		EquipPlayerWeapon(client, weapon);
+	}
+
+	return Plugin_Continue;
 }
 
 
@@ -716,7 +801,7 @@ void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 Action TimerCheck(Handle timer)
 {
 	static char sTemp[MAX_MODEL], sModel[MAX_MODEL];
-	int att, last, model, weapon;
+	int att, last, model, active, weapon;
 	ArrayList hListOld;
 	ArrayList hListNew;
 
@@ -724,7 +809,7 @@ Action TimerCheck(Handle timer)
 	for( int client = 1; client <= MaxClients; client++ )
 	{
 		// Validate alive
-		if( IsClientInGame(client) && IsPlayerAlive(client) )
+		if( !g_bBlockSwitch[client] &&  IsClientInGame(client) && IsPlayerAlive(client) )
 		{
 			model = GetEntProp(client, Prop_Data, "m_nModelIndex", 2);
 
@@ -750,13 +835,13 @@ Action TimerCheck(Handle timer)
 						(g_iWorldModel[client] && EntRefToEntIndex(g_iWorldModel[client]) != INVALID_ENT_REFERENCE)
 					)
 					{
-						weapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
-						if( weapon != -1 )
+						active = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+						if( active != -1 )
 						{
 							DataPack dPack = new DataPack();
 							dPack.WriteCell(client);
 							dPack.WriteCell(GetClientUserId(client));
-							dPack.WriteCell(EntIndexToEntRef(weapon)); // Save last held weapon to switch back
+							dPack.WriteCell(EntIndexToEntRef(active)); // Save last held weapon to switch back
 
 							delete g_hTimerSwap[client];
 							g_hTimerSwap[client] = CreateTimer(g_fCvarEquip, TimerWeapons, dPack);
@@ -769,16 +854,59 @@ Action TimerCheck(Handle timer)
 								{
 									dPack.WriteCell(EntIndexToEntRef(weapon));
 
-									if( (g_iEngine == Engine_Left4Dead || g_iEngine == Engine_Left4Dead2) && HasEntProp(weapon, Prop_Send, "m_isDualWielding")&& GetEntProp(weapon, Prop_Send, "m_isDualWielding") ) // Dual wielding pistols
+									if( i == 1 && (g_iEngine == Engine_Left4Dead || g_iEngine == Engine_Left4Dead2) && HasEntProp(weapon, Prop_Send, "m_isDualWielding") && GetEntProp(weapon, Prop_Send, "m_isDualWielding") ) // Dual wielding pistols
+									{
 										dPack.WriteCell(1);
+		
+										if( active == weapon )
+										{
+											TimerDual(null, GetClientUserId(client));
+											// CreateTimer(0.2, TimerDual, GetClientUserId(client));
+										}
+										else
+										{
+											// Save ammo and set after giving new pistols
+											int ammo = GetEntProp(weapon, Prop_Send, "m_iClip1");
+
+											// Block switching when giving a new pistol, the games internal functions for dual pistols switches later than the current frame
+											if( !g_bBlockSwitch[client] )
+											{
+												g_bBlockSwitch[client] = true;
+												CreateTimer(0.2, TimerBlock, client);
+											}
+
+											// Remove and delete the pistol
+											RemovePlayerItem(client, weapon);
+											RemoveEntity(weapon);
+
+											// Block switching to pistol if equipped
+											if( active != weapon )
+											{
+												SDKHook(client, SDKHook_WeaponCanSwitchTo, WeaponCanSwitchTo);
+											}
+
+											// Give new pistol, restore ammo
+											int temp = GivePlayerItem(client, "weapon_pistol");
+											GivePlayerItem(client, "weapon_pistol");
+											SetEntProp(temp, Prop_Send, "m_iClip1", ammo);
+
+											// Unblock switch
+											if( active != weapon )
+											{
+												SDKUnhook(client, SDKHook_WeaponCanSwitchTo, WeaponCanSwitchTo);
+											}
+										}
+									}
 									else
+									{
 										dPack.WriteCell(0);
 
-									// Teleport somewhere else, otherwise it drops on floor next to them potentially allowing others to pickup.
-									SDKHooks_DropWeapon(client, weapon);
+										// Teleport somewhere else, otherwise it drops on floor next to them potentially allowing others to pickup.
+										SDKHooks_DropWeapon(client, weapon);
 
-									// Because "SDKHooks_DropWeapon" throws "[SM] Exception reported: Could not read vecVelocity vector" when setting position to drop at, even with velocity set. WTF
-									TeleportEntity(weapon, view_as<float>({10.0, 100.0, 1000.0}), NULL_VECTOR, NULL_VECTOR);
+										// Because "SDKHooks_DropWeapon" throws "[SM] Exception reported: Could not read vecVelocity vector" when setting position to drop at, even with velocity set. WTF
+										TeleportEntity(weapon, view_as<float>({10.0, 100.0, 1000.0}), NULL_VECTOR, NULL_VECTOR);
+									}
 								}
 							}
 						}
@@ -833,6 +961,17 @@ Action TimerCheck(Handle timer)
 	return Plugin_Continue;
 }
 
+Action TimerBlock(Handle timer, int client)
+{
+	g_bBlockSwitch[client] = false;
+	return Plugin_Continue;
+}
+
+Action WeaponCanSwitchTo(int client, int weapon)
+{
+	return Plugin_Handled;
+}
+
 Action TimerWeapons(Handle timer, DataPack dPack)
 {
 	dPack.Reset();
@@ -853,13 +992,18 @@ Action TimerWeapons(Handle timer, DataPack dPack)
 			weapon = dPack.ReadCell();
 			dual = dPack.ReadCell();
 
-			if( EntRefToEntIndex(weapon) != INVALID_ENT_REFERENCE )
+			if( dual && active == weapon )
 			{
-				EquipPlayerWeapon(client, weapon);
-				SetEntPropEnt(client, Prop_Data, "m_hActiveWeapon", weapon);
-				AcceptEntityInput(weapon, "HideWeapon"); // Makes it not invisible.. logic
-
-				if( dual ) GivePlayerItem(client, "weapon_pistol");
+				active = INVALID_ENT_REFERENCE;
+			}
+			else
+			{
+				if( EntRefToEntIndex(weapon) != INVALID_ENT_REFERENCE )
+				{
+					EquipPlayerWeapon(client, weapon);
+					SetEntPropEnt(client, Prop_Data, "m_hActiveWeapon", weapon);
+					AcceptEntityInput(weapon, "HideWeapon"); // Makes it not invisible.. logic
+				}
 			}
 		}
 
@@ -888,6 +1032,7 @@ public void OnClientPutInServer(int client)
 public void OnClientDisconnect(int client)
 {
 	g_hTimerSwap[client] = null;
+	g_bBlockSwitch[client] = false;
 }
 
 
@@ -1080,7 +1225,7 @@ void OnWeaponDrop(int client, int weapon)
 void OnWeaponSwitch(int client, int weapon)
 {
 	// Ignore if drop weapon in progress
-	if( g_hTimerSwap[client] ) return;
+	// if( g_hTimerSwap[client] || g_bBlockSwitch[client] ) return; // Was breaking model, removed. Why was this here?
 
 	// Ignore switch until after model change stuff. Maybe not required anymore. TODO: FIXME: TEST
 	int model = GetEntProp(client, Prop_Data, "m_nModelIndex", 2);
