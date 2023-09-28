@@ -34,7 +34,6 @@
 
 1.15 (28-Sep-2023)
 	- L4D and L4D2: Fixed dual pistols creating an extra weapon when changing player skins. Thanks to "kochiurun119" for reporting.
-	- L4D and L4D2: Due to this fix there may sometimes be visual bugs on the first person model of dual pistols until the weapons are swapped.
 
 1.14 (25-Sep-2023)
 	- L4D and L4D2: Fixed invalid property errors. Thanks to "ur5efj" for reporting.
