@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.15"
+#define PLUGIN_VERSION 		"1.16"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.16 (01-Oct-2023)
+	- Delayed model changed detection on player spawn to prevent attachment issues. Thanks to "little_froy" for reporting.
 
 1.15 (28-Sep-2023)
 	- L4D and L4D2: Fixed dual pistols creating an extra weapon when changing player skins. Thanks to "kochiurun119" for reporting.
@@ -733,9 +736,14 @@ void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userid);
 	if( client )
 	{
-		g_iLastModel[client] = GetEntProp(client, Prop_Data, "m_nModelIndex", 2);
+		// g_iLastModel[client] = GetEntProp(client, Prop_Data, "m_nModelIndex", 2);
+		g_iLastModel[client] = 0;
 		g_iLastWeapon[client] = -1;
 		g_bOnLadder[client] = false;
+		g_bBlockSwitch[client] = true;
+		CreateTimer(0.1, TimerBlock, client);
+		CreateTimer(0.2, TimerTeam);
+
 		RequestFrame(OnFrameSpawn, userid); // Because spawning and adding weapons can happen too fast so OnWeaponSwitch fires with the wrong m_hActiveWeapon weapon. Delaying and triggering again allows the fake model to correctly change.
 	}
 }
@@ -744,7 +752,15 @@ void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
 	if( g_bCvarModels )
 	{
-		CreateTimer(0.1, TimerTeam);
+		int userid = event.GetInt("userid");
+		int client = GetClientOfUserId(userid);
+		if( client )
+		{
+			g_iLastModel[client] = 0;
+			g_bBlockSwitch[client] = true;
+			CreateTimer(0.1, TimerBlock, client);
+			CreateTimer(0.2, TimerTeam);
+		}
 	}
 }
 
@@ -860,7 +876,6 @@ Action TimerCheck(Handle timer)
 										if( active == weapon )
 										{
 											TimerDual(null, GetClientUserId(client));
-											// CreateTimer(0.2, TimerDual, GetClientUserId(client));
 										}
 										else
 										{
