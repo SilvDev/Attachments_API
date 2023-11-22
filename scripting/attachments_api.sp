@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.16"
+#define PLUGIN_VERSION 		"1.17"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.17 (22-Nov-2023)
+	- L4D & L4D2: Fixed error when a client has no weapon. Thanks to "Krufftys Killers" for reporting.
 
 1.16 (01-Oct-2023)
 	- Delayed model changed detection on player spawn to prevent attachment issues. Thanks to "little_froy" for reporting.
@@ -343,7 +346,7 @@ Action TimerDual(Handle timer, int userid)
 	if( client && IsClientInGame(client) )
 	{
 		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-		if( weapon == GetPlayerWeaponSlot(client, 1) )
+		if( weapon != -1 && weapon == GetPlayerWeaponSlot(client, 1) )
 		{
 			RemovePlayerItem(client, weapon);
 
